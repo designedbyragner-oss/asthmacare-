@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Flutter 3.44.1
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version: 3.44.1
@@ -95,6 +95,10 @@ jobs:
           PUBLIC_KEY=$(printf '%s' "$RESPONSE" | jq -r '.publicKey // empty')
           if [ -z "$PUBLIC_KEY" ]; then
             echo "::error::Appetize response did not contain publicKey — see response above"
+            exit 1
+          fi
+          if ! printf '%s' "$PUBLIC_KEY" | grep -qE '^[A-Za-z0-9_-]{8,}$'; then
+            echo "::error::Unexpected publicKey format — refusing to propagate it"
             exit 1
           fi
           APP_URL="https://appetize.io/app/$PUBLIC_KEY"
