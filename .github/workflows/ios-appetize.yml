@@ -36,6 +36,11 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 60
+    # Note: the `secrets` context is not allowed inside step-level `if:`
+    # conditions — map it to job-level env here and gate steps on env.X.
+    env:
+      APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+      APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
 
     steps:
       - name: Checkout
@@ -76,10 +81,7 @@ jobs:
       # Appetize app is replaced in place (stable share link across builds);
       # otherwise a new app is created on every run.
       - name: Upload to Appetize
-        if: ${{ secrets.APPETIZE_API_TOKEN != '' }}
-        env:
-          APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
-          APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
+        if: env.APPETIZE_API_TOKEN != ''
         run: |
           if [ -n "$APPETIZE_PUBLIC_KEY" ]; then
             ENDPOINT="https://api.appetize.io/v1/apps/$APPETIZE_PUBLIC_KEY"
@@ -110,7 +112,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Summary (no Appetize token configured)
-        if: ${{ secrets.APPETIZE_API_TOKEN == '' }}
+        if: env.APPETIZE_API_TOKEN == ''
         run: |
           {
             echo "### Artifact ready — manual upload"
