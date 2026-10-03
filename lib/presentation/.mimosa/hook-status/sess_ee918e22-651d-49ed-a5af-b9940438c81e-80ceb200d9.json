@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-02T22:10:51.544Z",
+  "sessionId": "sess_ee918e22-651d-49ed-a5af-b9940438c81e",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "C:\\Users\\Eng-m\\Desktop\\My_project\\AsthmaCare\\app\\test\\theme_switcher_test.dart",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 5,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-25T17:35:12.757Z",
+  "sessionId": "sess_00e95a7b-8a12-4f3d-9b77-120d019a0b0e",
+  "event": "PostToolUse",
+  "toolName": "Write",
+  "file": "C:\\Users\\Eng-m\\Desktop\\My_project\\AsthmaCare\\app\\lib\\core\\theme\\app_theme.dart",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 4,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}
