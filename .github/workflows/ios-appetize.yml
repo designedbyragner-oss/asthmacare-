@@ -1,0 +1,114 @@
+# iOS Simulator build for Appetize.io
+#
+# Builds the app as an iOS Simulator .app (the only iOS format Appetize accepts —
+# device .ipa builds are NOT supported), zips it with ditto (preserves framework
+# symlinks), uploads it as a workflow artifact, and — if the APPETIZE_API_TOKEN
+# secret is configured — pushes it to Appetize and prints the share link.
+#
+# Appetize upload is optional: the artifact alone is enough for a manual upload
+# via the Appetize web UI (drag & drop).
+#
+# Notes:
+# - Release mode is rejected by flutter for simulator builds; debug is required.
+# - No Apple Developer account or code signing is needed for simulator builds.
+# - macos-15 (arm64) + Xcode 16.x is a proven combo for Flutter 3.44.x;
+#   appetize recommends ARM simulator builds.
+
+name: iOS Simulator build (Appetize)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "ios/**"
+      - "assets/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/ios-appetize.yml"
+
+concurrency:
+  group: ios-appetize-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter 3.44.1
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.1
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build iOS Simulator app (debug)
+        run: flutter build ios --simulator --debug
+
+      - name: Zip Runner.app (ditto preserves symlinks)
+        run: |
+          cd build/ios/iphonesimulator
+          ditto -c -k --sequesterRsrc --keepParent Runner.app AsthmaCare-ios.zip
+          ls -lh AsthmaCare-ios.zip
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: AsthmaCare-ios-simulator
+          path: build/ios/iphonesimulator/AsthmaCare-ios.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      # Optional: requires repository secret APPETIZE_API_TOKEN.
+      # If repository variable APPETIZE_PUBLIC_KEY is also set, the existing
+      # Appetize app is replaced in place (stable share link across builds);
+      # otherwise a new app is created on every run.
+      - name: Upload to Appetize
+        if: ${{ secrets.APPETIZE_API_TOKEN != '' }}
+        env:
+          APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ vars.APPETIZE_PUBLIC_KEY }}
+        run: |
+          if [ -n "$APPETIZE_PUBLIC_KEY" ]; then
+            ENDPOINT="https://api.appetize.io/v1/apps/$APPETIZE_PUBLIC_KEY"
+          else
+            ENDPOINT="https://api.appetize.io/v1/apps"
+          fi
+          echo "Uploading to $ENDPOINT ..."
+          RESPONSE=$(curl -sS -f -X POST "$ENDPOINT" \
+            -H "X-API-KEY: $APPETIZE_API_TOKEN" \
+            -F "file=@build/ios/iphonesimulator/AsthmaCare-ios.zip" \
+            -F "platform=ios")
+          echo "$RESPONSE"
+          PUBLIC_KEY=$(printf '%s' "$RESPONSE" | jq -r '.publicKey // empty')
+          if [ -z "$PUBLIC_KEY" ]; then
+            echo "::error::Appetize response did not contain publicKey — see response above"
+            exit 1
+          fi
+          APP_URL="https://appetize.io/app/$PUBLIC_KEY"
+          echo "APP_URL=$APP_URL" >> "$GITHUB_ENV"
+          {
+            echo "### Appetize"
+            echo "- App link: $APP_URL"
+            echo "- publicKey: \`$PUBLIC_KEY\` (set it as the APPETIZE_PUBLIC_KEY repository variable to keep this link stable across rebuilds)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summary (no Appetize token configured)
+        if: ${{ secrets.APPETIZE_API_TOKEN == '' }}
+        run: |
+          {
+            echo "### Artifact ready — manual upload"
+            echo "Download the artifact \`AsthmaCare-ios-simulator\` from this run and upload the zip to https://appetize.io (web UI), or add the APPETIZE_API_TOKEN secret to automate it."
+          } >> "$GITHUB_STEP_SUMMARY"
