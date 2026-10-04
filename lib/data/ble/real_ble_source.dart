@@ -1,4 +1,5 @@
-/// مصدر BLE حقيقي عبر flutter_blue_plus — للجهازين معًا وفق UUIDs العقد (§7.1).
+/// مصدر BLE حقيقي عبر flutter_blue_plus — السوار جهاز أساسي: يُقبل اقترانه
+/// وحده أو مع جهاز البيئة، والبيئة وحدها لا تُقبل (§7.1).
 /// مسارات الدفاع: مهلة مسح، إعادة اتصال يدوية من المستخدم، تجاهل الحزم التالفة صامتًا (§7.5).
 library;
 
@@ -11,6 +12,15 @@ import 'package:asthma_care/data/ble/ble_constants.dart';
 import 'package:asthma_care/data/ble/device_source.dart';
 import 'package:asthma_care/data/ble/packet_codec.dart';
 import 'package:asthma_care/data/models/models.dart';
+
+/// قرار الاقتران من أسماء الأجهزة المُعلنة في نتائج المسح:
+/// السوار وحده يكفي (هو مصدر المؤشرات الحيوية الأساسية)، والبيئة تُوصل
+/// استكمالًا له فقط — بلا سوار لا يُفتح أي اتصال. دالة نقية قابلة للاختبار.
+({bool attachBand, bool attachEnv}) decidePairing(Set<String> advNames) => (
+      attachBand: advNames.contains(BleUuids.bandDeviceName),
+      attachEnv: advNames.contains(BleUuids.bandDeviceName) &&
+          advNames.contains(BleUuids.envDeviceName),
+    );
 
 class RealBleSource implements DeviceSource {
   final StreamController<VitalsReading> _vitalsCtrl =
@@ -61,31 +71,57 @@ class RealBleSource implements DeviceSource {
         withServices: [], // مسح عام — الأسماء الإعلانية فقط (D4)
       );
 
-      final found = await FlutterBluePlus.scanResults
-          .firstWhere(
-            (results) =>
-                results.any(_isEnvDevice) && results.any(_isBandDevice),
-            orElse: () => <ScanResult>[],
-          )
-          .timeout(const Duration(seconds: 14), onTimeout: () => <ScanResult>[]);
-
-      final env = found.where(_isEnvDevice).map((r) => r.device).firstOrNull;
-      final band = found.where(_isBandDevice).map((r) => r.device).firstOrNull;
+      // نافذة انتظار كريمة: الجهازان يُربطان فور اكتمالهما في اللقطة،
+      // وإلا تُربط قائمة آخر لقطة بعد 3 ثوانٍ (السوار وحده مقبول).
+      final found = <ScanResult>[];
+      final bothSeen = Completer<void>();
+      final scanSub = FlutterBluePlus.scanResults.listen((list) {
+        found
+          ..clear()
+          ..addAll(list);
+        if (list.any(_isEnvDevice) &&
+            list.any(_isBandDevice) &&
+            !bothSeen.isCompleted) {
+          bothSeen.complete();
+        }
+      });
+      try {
+        await bothSeen.future.timeout(const Duration(seconds: 3),
+            onTimeout: () {});
+      } finally {
+        await scanSub.cancel();
+      }
 
       await FlutterBluePlus.stopScan();
 
-      if (env == null || band == null) {
+      // سياسة الاقتران سلطة واحدة: decidePairing (سوار وحده أو الجهازان).
+      final decision = decidePairing(
+          found.map((r) => r.advertisementData.advName).toSet());
+      final band = decision.attachBand
+          ? found.where(_isBandDevice).map((r) => r.device).firstOrNull
+          : null;
+      final env = decision.attachEnv
+          ? found.where(_isEnvDevice).map((r) => r.device).firstOrNull
+          : null;
+
+      if (band == null) {
         _setLink(env: LinkState.disconnected, band: LinkState.disconnected);
         return;
       }
 
-      _envDevice = env;
       _bandDevice = band;
 
       _setLink(band: LinkState.connecting);
       await _attach(band, BleUuids.bandService, BleUuids.vitalsChar,
           (raw) => _onVitalsPacket(raw));
       _setLink(band: LinkState.connected);
+
+      if (env == null) {
+        _setLink(env: LinkState.disconnected);
+        return;
+      }
+
+      _envDevice = env;
 
       _setLink(env: LinkState.connecting);
       await _attach(env, BleUuids.envService, BleUuids.envReadingChar,
